@@ -1,6 +1,6 @@
-// src/app/layout.tsx
 import type { Metadata } from "next";
 import "./globals.css";
+import { AuthProvider } from "./AuthProvider";
 
 export const metadata: Metadata = {
     title: "Short-form MVP",
@@ -14,7 +14,9 @@ export default function RootLayout({
 }) {
     return (
         <html lang="ko">
-            <body>{children}</body>
+            <body>
+                <AuthProvider>{children}</AuthProvider>
+            </body>
         </html>
     );
 }
