@@ -55,12 +55,13 @@ export default function VideoList() {
     };
 
     useEffect(() => {
-        load();
+        void load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
-        <div>
+        // ✅ 여기서 스크롤 + 스냅을 담당
+        <div className="h-full overflow-y-scroll snap-y snap-mandatory">
             {items.map((v) => (
                 <VideoCard
                     key={v.id}

@@ -9,7 +9,8 @@ type Props = {
 
 export default function VideoCard({ src, poster, title }: Props) {
     return (
-        <div className="w-full h-dvh flex items-center justify-center bg-black relative">
+        // ✅ snap-start 추가: 스크롤 컨테이너의 스냅 대상
+        <div className="w-full h-dvh snap-start flex items-center justify-center bg-black relative">
             <video
                 src={src}
                 poster={poster}
