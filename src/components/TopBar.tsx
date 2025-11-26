@@ -21,7 +21,7 @@ export default function TopBar() {
     const displayName =
         session?.user?.name ??
         session?.user?.email ??
-        (session?.user?.id ?? "");
+        "";
 
     return (
         <header className="flex items-center justify-between px-4 py-2 text-sm border-b border-neutral-800">
