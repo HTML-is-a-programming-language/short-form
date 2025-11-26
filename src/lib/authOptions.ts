@@ -1,9 +1,8 @@
 // src/lib/authOptions.ts
-import type { NextAuthOptions } from "next-auth";
+import type { NextAuthOptions, Session } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { db } from "./db";
 
-// JWT 기반, DB 어댑터 없이 사용하는 설정
 export const authOptions: NextAuthOptions = {
     providers: [
         GoogleProvider({
@@ -15,19 +14,16 @@ export const authOptions: NextAuthOptions = {
         strategy: "jwt",
     },
     callbacks: {
-        // 세션마다 우리 Prisma User와 매핑해서 appUserId를 담아두는 콜백
-        async session({ session }) {
-            if (!session.user?.email) return session;
+        async session({ session }): Promise<Session> {
+            if (!session.user?.email) {
+                return session;
+            }
 
             const email = session.user.email;
             const name = session.user.name ?? "사용자";
 
-            // 1) 이메일로 우리 User 찾기
-            let user = await db.user.findUnique({
-                where: { email },
-            });
+            let user = await db.user.findUnique({ where: { email } });
 
-            // 2) 없으면 새로 만들기
             if (!user) {
                 const baseUsername = email.split("@")[0].slice(0, 20);
                 user = await db.user.create({
@@ -39,9 +35,9 @@ export const authOptions: NextAuthOptions = {
                 });
             }
 
-            // 3) 세션 객체에 우리 User id / username 심기
-            (session.user as any).appUserId = user.id;
-            (session.user as any).username = user.username;
+            // 여기서 session.user 타입은 우리가 확장한 타입이라 any 필요 없음
+            session.user.appUserId = user.id;
+            session.user.username = user.username;
 
             return session;
         },

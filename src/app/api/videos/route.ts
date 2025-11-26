@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/authOptions";
 
-type Body = {
+type VideoCreateBody = {
     uid: string;
     title: string;
     description?: string;
@@ -12,29 +12,21 @@ type Body = {
     videoUrl: string;
 };
 
-// POST /api/videos  → 업로드 끝난 후 DB에 영상 정보 저장
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
 
-        if (!session?.user || !(session.user as any).appUserId) {
+        if (!session?.user?.appUserId) {
             return NextResponse.json(
                 { error: "unauthorized" },
                 { status: 401 },
             );
         }
 
-        const body = (await req.json()) as Body;
+        const body = (await req.json()) as VideoCreateBody;
         const { uid, title, description, storagePath, videoUrl } = body;
 
-        if (!uid || !title || !storagePath || !videoUrl) {
-            return NextResponse.json(
-                { error: "missing required fields" },
-                { status: 400 },
-            );
-        }
-
-        const authorId = (session.user as any).appUserId as string;
+        const authorId = session.user.appUserId;
 
         const video = await db.video.create({
             data: {
@@ -49,16 +41,19 @@ export async function POST(req: NextRequest) {
         });
 
         return NextResponse.json({ ok: true, video }, { status: 201 });
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error("[POST /api/videos] error:", err);
+
+        const message =
+            err instanceof Error ? err.message : "unknown error";
+
         return NextResponse.json(
-            { error: err?.message ?? String(err) },
+            { error: message },
             { status: 500 },
         );
     }
 }
 
-// GET /api/videos  → 피드 목록
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
@@ -79,10 +74,14 @@ export async function GET(req: NextRequest) {
             { videos, nextCursor },
             { status: 200 },
         );
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error("[GET /api/videos] error:", err);
+
+        const message =
+            err instanceof Error ? err.message : "unknown error";
+
         return NextResponse.json(
-            { error: err?.message ?? String(err), videos: [], nextCursor: null },
+            { error: message, videos: [], nextCursor: null },
             { status: 500 },
         );
     }
