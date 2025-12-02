@@ -1,11 +1,14 @@
 // src/app/page.tsx
 import VideoList from "@/components/VideoList";
+import HeaderAuth from "@/components/HeaderAuth";
 
 export default function HomePage() {
     return (
-        // 여기서는 높이만 잡고, 스크롤은 VideoList가 담당
-        <main className="h-dvh bg-black">
-            <VideoList />
+        <main className="h-dvh flex flex-col bg-black overflow-hidden">
+            <HeaderAuth />
+            <section className="flex-1 overflow-hidden">
+                <VideoList />
+            </section>
         </main>
     );
 }
