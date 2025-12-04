@@ -3,6 +3,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePlayer } from "@/components/player/PlayerContext";
+import RightActionBar from "@/components/player/RightActionBar";
 
 type VideoCardProps = {
     src: string;
@@ -20,7 +21,7 @@ export default function VideoCard({
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const { muted, registerVideo } = usePlayer();
 
-    // 1) 활성/비활성에 따라 재생/정지 + 전역 플레이어에 등록
+    // 활성/비활성에 따라 재생/정지 + 전역 플레이어에 등록
     useEffect(() => {
         const video = videoRef.current;
         if (!video) {
@@ -28,10 +29,8 @@ export default function VideoCard({
         }
 
         if (isActive) {
-            // 현재 카드가 활성 카드면, 전역 플레이어에 등록
             registerVideo(video);
 
-            // 자동재생 시도
             const playPromise = video.play();
             if (playPromise !== undefined) {
                 playPromise.catch((err) => {
@@ -39,12 +38,11 @@ export default function VideoCard({
                 });
             }
         } else {
-            // 비활성 카드는 정지
             video.pause();
         }
     }, [isActive, registerVideo]);
 
-    // 2) 전역 mute 상태가 바뀔 때마다 mute만 반영
+    // 전역 mute 상태가 바뀔 때마다 mute 반영
     useEffect(() => {
         const video = videoRef.current;
         if (!video) {
@@ -61,10 +59,13 @@ export default function VideoCard({
                 poster={poster}
                 playsInline
                 loop
-                autoPlay={false} // play()는 useEffect에서 처리
+                autoPlay={false}
                 muted={muted}
                 className="h-full w-full object-cover"
             />
+
+            {/* 우측 세로 액션바 (좋아요/댓글/공유/마이페이지) */}
+            <RightActionBar />
 
             {/* 제목 오버레이 */}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/0 to-black/0 p-4">
