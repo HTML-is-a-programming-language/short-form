@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import VideoCard from "./VideoCard";
+import { usePlayer } from "@/components/player/PlayerContext";
 
 type VideoItem = {
     id: string;
@@ -32,20 +33,25 @@ export default function VideoList() {
     const [hasMore, setHasMore] = useState(true);
     // 네트워크 로딩 상태
     const [loading, setLoading] = useState(false);
-    // 전역 음소거 상태 (처음엔 음소거)
-    const [muted, setMuted] = useState(true);
 
     const containerRef = useRef<HTMLDivElement | null>(null);
     const isAnimatingRef = useRef(false);
 
+    // ★ 전역 플레이어 상태 (뮤트 토글만 사용)
+    const { muted, toggleMute } = usePlayer();
+
     // 서버에서 영상 추가로 가져오기
     const loadMore = useCallback(async (): Promise<boolean> => {
-        if (loading || !hasMore) return false;
+        if (loading || !hasMore) {
+            return false;
+        }
 
         setLoading(true);
         try {
             const params = new URLSearchParams();
-            if (cursor) params.set("cursor", cursor);
+            if (cursor) {
+                params.set("cursor", cursor);
+            }
 
             const res = await fetch(`/api/videos?${params.toString()}`, {
                 cache: "no-store",
@@ -82,7 +88,9 @@ export default function VideoList() {
                 const existingIds = new Set(prev.map((v) => v.id));
                 const uniqueNew = newVideos.filter((v) => !existingIds.has(v.id));
                 addedCount = uniqueNew.length;
-                if (addedCount === 0) return prev;
+                if (addedCount === 0) {
+                    return prev;
+                }
                 return [...prev, ...uniqueNew];
             });
 
@@ -107,8 +115,12 @@ export default function VideoList() {
 
     // 다음 / 이전 이동
     const goNext = useCallback(async () => {
-        if (isAnimatingRef.current) return;
-        if (items.length === 0) return;
+        if (isAnimatingRef.current) {
+            return;
+        }
+        if (items.length === 0) {
+            return;
+        }
 
         if (currentIndex < items.length - 1) {
             isAnimatingRef.current = true;
@@ -130,8 +142,12 @@ export default function VideoList() {
     }, [currentIndex, items.length, loadMore]);
 
     const goPrev = useCallback(() => {
-        if (isAnimatingRef.current) return;
-        if (currentIndex <= 0) return;
+        if (isAnimatingRef.current) {
+            return;
+        }
+        if (currentIndex <= 0) {
+            return;
+        }
 
         isAnimatingRef.current = true;
         setCurrentIndex((prev) => prev - 1);
@@ -143,7 +159,9 @@ export default function VideoList() {
     // 휠 + 터치 + 마우스 드래그 스와이프 이벤트
     useEffect(() => {
         const el = containerRef.current;
-        if (!el) return;
+        if (!el) {
+            return;
+        }
 
         const SWIPE_THRESHOLD = 50; // px
 
@@ -158,7 +176,9 @@ export default function VideoList() {
         let isMouseDown = false;
 
         const onWheel = (e: WheelEvent) => {
-            if (items.length === 0) return;
+            if (items.length === 0) {
+                return;
+            }
 
             e.preventDefault();
 
@@ -171,8 +191,12 @@ export default function VideoList() {
 
         // 터치 이벤트
         const onTouchStart = (e: TouchEvent) => {
-            if (items.length === 0) return;
-            if (e.touches.length > 1) return;
+            if (items.length === 0) {
+                return;
+            }
+            if (e.touches.length > 1) {
+                return;
+            }
 
             isTouching = true;
             touchStartY = e.touches[0].clientY;
@@ -180,19 +204,27 @@ export default function VideoList() {
         };
 
         const onTouchMove = (e: TouchEvent) => {
-            if (!isTouching) return;
-            if (e.touches.length > 1) return;
+            if (!isTouching) {
+                return;
+            }
+            if (e.touches.length > 1) {
+                return;
+            }
 
             e.preventDefault();
             touchCurrentY = e.touches[0].clientY;
         };
 
         const onTouchEnd = () => {
-            if (!isTouching) return;
+            if (!isTouching) {
+                return;
+            }
             isTouching = false;
 
             const deltaY = touchCurrentY - touchStartY;
-            if (Math.abs(deltaY) < SWIPE_THRESHOLD) return;
+            if (Math.abs(deltaY) < SWIPE_THRESHOLD) {
+                return;
+            }
 
             if (deltaY > 0) {
                 // 아래로 스와이프 → 이전
@@ -205,8 +237,12 @@ export default function VideoList() {
 
         // 마우스 드래그 (PC)
         const onMouseDown = (e: MouseEvent) => {
-            if (items.length === 0) return;
-            if (e.button !== 0) return; // 왼쪽 버튼만
+            if (items.length === 0) {
+                return;
+            }
+            if (e.button !== 0) {
+                return; // 왼쪽 버튼만
+            }
 
             isMouseDown = true;
             mouseStartY = e.clientY;
@@ -214,18 +250,24 @@ export default function VideoList() {
         };
 
         const onMouseMove = (e: MouseEvent) => {
-            if (!isMouseDown) return;
+            if (!isMouseDown) {
+                return;
+            }
 
             e.preventDefault(); // 텍스트 드래그 방지
             mouseCurrentY = e.clientY;
         };
 
         const onMouseUp = () => {
-            if (!isMouseDown) return;
+            if (!isMouseDown) {
+                return;
+            }
             isMouseDown = false;
 
             const deltaY = mouseCurrentY - mouseStartY;
-            if (Math.abs(deltaY) < SWIPE_THRESHOLD) return;
+            if (Math.abs(deltaY) < SWIPE_THRESHOLD) {
+                return;
+            }
 
             if (deltaY > 0) {
                 // 아래로 드래그 → 이전
@@ -268,10 +310,6 @@ export default function VideoList() {
     const visibleItems = items.slice(start, end + 1);
     const currentOffset = currentIndex - start;
 
-    const handleToggleMute = () => {
-        setMuted((prev) => !prev);
-    };
-
     return (
         <div
             ref={containerRef}
@@ -293,17 +331,16 @@ export default function VideoList() {
                                 poster={v.thumbnailUrl ?? undefined}
                                 title={v.title}
                                 isActive={isActive}
-                                muted={muted}
                             />
                         </div>
                     );
                 })}
             </div>
 
-            {/* 전역 음소거 토글 버튼 (한 개만 고정) */}
+            {/* 전역 음소거 토글 버튼 (PlayerContext 사용) */}
             <button
                 type="button"
-                onClick={handleToggleMute}
+                onClick={toggleMute}
                 className="absolute bottom-4 right-4 z-20 rounded-full border border-white/30 bg-black/60 px-3 py-1 text-xs text-white backdrop-blur-sm"
             >
                 {muted ? "🔇 음소거" : "🔊 소리 켜짐"}

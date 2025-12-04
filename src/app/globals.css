@@ -126,3 +126,46 @@ body,
 :root {
     height: 100%;
 }
+
+.player-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 56px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    z-index: 50;
+    backdrop-filter: blur(8px);
+}
+
+.player-btn {
+    border: none;
+    background: none;
+    color: inherit;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.player-timeline {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.player-timeline input[type="range"] {
+    flex: 1;
+}
+
+.player-timeline .time-text {
+    font-size: 12px;
+    min-width: 40px;
+    text-align: center;
+}
+
