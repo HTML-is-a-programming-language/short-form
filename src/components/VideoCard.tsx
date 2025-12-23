@@ -6,13 +6,15 @@ import { usePlayer } from "@/components/player/PlayerContext";
 import RightActionBar from "@/components/player/RightActionBar";
 
 type VideoCardProps = {
+    videoId: string;      // ✅ 영상 고유 id 추가
     src: string;
     poster?: string;
     title: string;
-    isActive: boolean; // 현재 활성 카드인가
+    isActive: boolean;
 };
 
 export default function VideoCard({
+    videoId,
     src,
     poster,
     title,
@@ -21,7 +23,6 @@ export default function VideoCard({
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const { muted, registerVideo } = usePlayer();
 
-    // 활성/비활성에 따라 재생/정지 + 전역 플레이어에 등록
     useEffect(() => {
         const video = videoRef.current;
         if (!video) {
@@ -42,7 +43,6 @@ export default function VideoCard({
         }
     }, [isActive, registerVideo]);
 
-    // 전역 mute 상태가 바뀔 때마다 mute 반영
     useEffect(() => {
         const video = videoRef.current;
         if (!video) {
@@ -64,10 +64,9 @@ export default function VideoCard({
                 className="h-full w-full object-cover"
             />
 
-            {/* 우측 세로 액션바 (좋아요/댓글/공유/마이페이지) */}
-            <RightActionBar />
+            {/* ✅ videoId 넘겨주기 */}
+            <RightActionBar videoId={videoId} />
 
-            {/* 제목 오버레이 */}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/0 to-black/0 p-4">
                 <p className="line-clamp-2 text-sm text-white">
                     {title}

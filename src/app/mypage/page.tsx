@@ -13,6 +13,12 @@ export default async function MyPage() {
 
     const user = session.user;
 
+    // ✅ 프로필 이미지 없으면 기본 이미지로 대체
+    const profileImage =
+        (user.image && user.image.trim() !== "")
+            ? user.image
+            : "/images/default-avatar.png"; // /public/images/default-avatar.png 에 넣어두기
+
     return (
         <main className="min-h-dvh bg-black text-white flex justify-center">
             <div className="w-full max-w-md px-4 py-8">
@@ -20,19 +26,13 @@ export default async function MyPage() {
 
                 <section className="bg-white/5 rounded-2xl p-5 flex items-center gap-4 mb-6">
                     <div className="relative w-16 h-16 rounded-full overflow-hidden border border-white/20 flex-shrink-0">
-                        {user.image ? (
-                            <Image
-                                src={user.image}
-                                alt="프로필 이미지"
-                                fill
-                                sizes="64px"
-                                className="object-cover"
-                            />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-white/10 text-lg">
-                                {user.name?.[0] ?? "M"}
-                            </div>
-                        )}
+                        <Image
+                            src={profileImage}
+                            alt="프로필 이미지"
+                            fill
+                            sizes="64px"
+                            className="object-cover"
+                        />
                     </div>
 
                     <div className="flex-1">

@@ -327,6 +327,7 @@ export default function VideoList() {
                     return (
                         <div key={v.id} className="h-full">
                             <VideoCard
+                                videoId={v.id}                          // ⭐ 추가
                                 src={v.videoUrl}
                                 poster={v.thumbnailUrl ?? undefined}
                                 title={v.title}

@@ -2,98 +2,121 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider  = "postgresql"
-    url       = env("DATABASE_URL")
-    directUrl = env("DIRECT_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
-    id           String   @id @default(cuid())
-    name         String?
-    username     String   @unique
-    email        String?  @unique
-    image        String?
-    bio          String?  @db.Text
-    createdAt    DateTime @default(now())
-    updatedAt    DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String?
+  username  String   @unique
+  email     String?  @unique
+  image     String?
+  bio       String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    videos       Video[]
-    likes        Like[]
-    comments     Comment[]
+  videos   Video[]
+  likes    Like[]
+  comments Comment[]
 
-    // 팔로우
-    following    Follow[] @relation("following")
-    followers    Follow[] @relation("followers")
+  // 팔로우
+  following Follow[] @relation("following")
+  followers Follow[] @relation("followers")
+
+  videoReactions VideoReaction[]
 }
 
 model Video {
-    id              String       @id @default(cuid())
-    uid             String       @unique
-    authorId        String
-    author          User         @relation(fields: [authorId], references: [id])
+  id       String @id @default(cuid())
+  uid      String @unique
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
 
-    title           String
-    description     String?      @db.Text
+  title       String
+  description String? @db.Text
 
-    storagePath     String
-    videoUrl        String
-    thumbnailUrl    String?
+  storagePath  String
+  videoUrl     String
+  thumbnailUrl String?
 
-    status          VideoStatus  @default(READY)
-    isPublic        Boolean      @default(true)
+  status   VideoStatus @default(READY)
+  isPublic Boolean     @default(true)
 
-    durationSec     Int?
-    width           Int?
-    height          Int?
+  durationSec Int?
+  width       Int?
+  height      Int?
 
-    createdAt       DateTime     @default(now())
-    updatedAt       DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    likes           Like[]
-    comments        Comment[]
+  likes    Like[]
+  comments Comment[]
+
+  reactions VideoReaction[]
 }
 
 enum VideoStatus {
-    PENDING
-    READY
-    FAILED
+  PENDING
+  READY
+  FAILED
 }
 
 model Like {
-    id        String   @id @default(cuid())
-    userId    String
-    videoId   String
-    createdAt DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  createdAt DateTime @default(now())
 
-    user      User     @relation(fields: [userId], references: [id])
-    video     Video    @relation(fields: [videoId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+  video Video @relation(fields: [videoId], references: [id])
 
-    @@unique([userId, videoId])
+  @@unique([userId, videoId])
 }
 
 model Comment {
-    id        String   @id @default(cuid())
-    userId    String
-    videoId   String
-    body      String
-    createdAt DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  body      String
+  createdAt DateTime @default(now())
 
-    user      User     @relation(fields: [userId], references: [id])
-    video     Video    @relation(fields: [videoId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+  video Video @relation(fields: [videoId], references: [id])
 }
 
 model Follow {
-    id          String   @id @default(cuid())
-    followerId  String
-    followingId String
-    createdAt   DateTime @default(now())
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
 
-    follower    User @relation("followers", fields: [followerId], references: [id])
-    following   User @relation("following", fields: [followingId], references: [id])
+  follower  User @relation("followers", fields: [followerId], references: [id])
+  following User @relation("following", fields: [followingId], references: [id])
 
-    @@unique([followerId, followingId])
+  @@unique([followerId, followingId])
+}
+
+model VideoReaction {
+  id        String       @id @default(cuid())
+  userId    String
+  videoId   String
+  type      ReactionType
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id])
+  video Video @relation(fields: [videoId], references: [id])
+
+  @@unique([userId, videoId])
+}
+
+enum ReactionType {
+  LIKE
+  DISLIKE
 }
