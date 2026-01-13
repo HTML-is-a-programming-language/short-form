@@ -1,88 +1,98 @@
-// src/app/api/videos/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
+import { randomUUID } from "crypto";
 
-type VideoCreateBody = {
-    uid: string;
-    title: string;
-    description?: string;
-    storagePath: string;
-    videoUrl: string;
-};
+export async function GET(req: Request) {
+    const { searchParams } = new URL(req.url);
 
-export async function POST(req: NextRequest) {
-    try {
-        const session = await getServerSession(authOptions);
+    const takeRaw = Number(searchParams.get("take") ?? "10");
+    const take = Number.isFinite(takeRaw) ? Math.min(Math.max(takeRaw, 1), 30) : 10;
 
-        if (!session?.user?.appUserId) {
-            return NextResponse.json(
-                { error: "unauthorized" },
-                { status: 401 },
-            );
-        }
+    const cursor = searchParams.get("cursor"); // Video.id 커서
 
-        const body = (await req.json()) as VideoCreateBody;
-        const { uid, title, description, storagePath, videoUrl } = body;
+    const rows = await db.video.findMany({
+        where: {
+            isPublic: true,
+            status: "READY",
+        },
+        orderBy: {
+            createdAt: "desc",
+        },
+        take: take + 1,
+        ...(cursor
+            ? {
+                  cursor: { id: cursor },
+                  skip: 1,
+              }
+            : {}),
+        select: {
+            id: true,
+            title: true,
+            videoUrl: true,
+            thumbnailUrl: true,
+        },
+    });
 
-        const authorId = session.user.appUserId;
+    const hasMore = rows.length > take;
+    const videos = hasMore ? rows.slice(0, take) : rows;
+    const nextCursor = videos.length ? videos[videos.length - 1].id : null;
 
-        const video = await db.video.create({
-            data: {
-                uid,
-                authorId,
-                title,
-                description,
-                storagePath,
-                videoUrl,
-                status: "READY",
-            },
-        });
-
-        return NextResponse.json({ ok: true, video }, { status: 201 });
-    } catch (err: unknown) {
-        console.error("[POST /api/videos] error:", err);
-
-        const message =
-            err instanceof Error ? err.message : "unknown error";
-
-        return NextResponse.json(
-            { error: message },
-            { status: 500 },
-        );
-    }
+    return NextResponse.json(
+        {
+            videos,
+            nextCursor,
+        },
+        { status: 200 }
+    );
 }
 
-export async function GET(req: NextRequest) {
-    try {
-        const { searchParams } = new URL(req.url);
-        const cursor = searchParams.get("cursor");
-        const take = 10;
+export async function POST(req: Request) {
+    const session = await auth();
 
-        const videos = await db.video.findMany({
-            where: { isPublic: true, status: "READY" },
-            orderBy: { createdAt: "desc" },
-            take: take + 1,
-            ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-            include: { author: true },
-        });
-
-        const nextCursor = videos.length > take ? videos.pop()!.id : null;
-
-        return NextResponse.json(
-            { videos, nextCursor },
-            { status: 200 },
-        );
-    } catch (err: unknown) {
-        console.error("[GET /api/videos] error:", err);
-
-        const message =
-            err instanceof Error ? err.message : "unknown error";
-
-        return NextResponse.json(
-            { error: message, videos: [], nextCursor: null },
-            { status: 500 },
-        );
+    if (!session?.user) {
+        return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
+
+    const body = await req.json().catch(() => null);
+
+    const title = String(body?.title ?? "").trim();
+    const description = String(body?.description ?? "").trim();
+    const videoUrl = String(body?.videoUrl ?? "").trim();
+    const thumbnailUrl = String(body?.thumbnailUrl ?? "").trim();
+
+    const authorId = (session.user as { id?: string }).id;
+    if (!authorId) {
+        return NextResponse.json({ message: "Session user id missing" }, { status: 400 });
+    }
+
+    if (!title) {
+        return NextResponse.json({ message: "제목이 필요해요." }, { status: 400 });
+    }
+
+    if (!videoUrl) {
+        return NextResponse.json({ message: "videoUrl이 필요해요." }, { status: 400 });
+    }
+
+    const uid = randomUUID();
+
+    const video = await db.video.create({
+        data: {
+            uid,
+            authorId,
+            title,
+            description: description ? description : null,
+            storagePath: `uploads/${uid}`,
+            videoUrl,
+            thumbnailUrl: thumbnailUrl ? thumbnailUrl : null,
+            status: "READY",
+            isPublic: true,
+        },
+        select: {
+            id: true,
+            uid: true,
+        },
+    });
+
+    return NextResponse.json({ video }, { status: 201 });
 }

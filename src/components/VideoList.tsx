@@ -106,12 +106,13 @@ export default function VideoList() {
         } finally {
             setLoading(false);
         }
-    }, [cursor, hasMore, loading]);
+    }, [cursor, hasMore]);
 
     // 최초 1회 로딩
     useEffect(() => {
         void loadMore();
-    }, [loadMore]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // 다음 / 이전 이동
     const goNext = useCallback(async () => {

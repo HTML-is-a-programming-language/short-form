@@ -15,14 +15,13 @@ export const authOptions: NextAuthOptions = {
     },
     callbacks: {
         async session({ session }): Promise<Session> {
-            // 이메일 없으면 그냥 반환
             if (!session.user?.email) {
                 return session;
             }
 
             const email = session.user.email;
             const name = session.user.name ?? "사용자";
-            const providerImage = session.user.image ?? null; // 구글에서 온 이미지
+            const providerImage = session.user.image ?? null;
 
             let user = await db.user.findUnique({ where: { email } });
 
@@ -33,22 +32,24 @@ export const authOptions: NextAuthOptions = {
                         email,
                         name,
                         username: baseUsername || `user_${Date.now()}`,
-                        image: providerImage, // ⭐ DB에도 같이 저장
+                        image: providerImage,
                     },
                 });
             } else if (!user.image && providerImage) {
-                // 예전 유저인데 image가 비어있고, 이번에 프로필 이미지가 들어왔으면 동기화
                 user = await db.user.update({
                     where: { id: user.id },
                     data: { image: providerImage },
                 });
             }
 
-            // 앱에서 쓸 추가 필드들
+            // ✅ 세션 확장 필드들
             session.user.appUserId = user.id;
             session.user.username = user.username;
 
-            // 세션에 최종 image 세팅 (DB > provider)
+            // ✅ 가장 중요: API에서 쓰는 user.id도 같이 넣어주기
+            // (NextAuth 기본 타입엔 없지만 런타임에 넣는 건 가능)
+            (session.user as { id?: string }).id = user.id;
+
             session.user.image = user.image ?? providerImage ?? null;
 
             return session;
