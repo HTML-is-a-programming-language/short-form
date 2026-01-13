@@ -1,21 +1,19 @@
+// src/app/api/videos/[videoId]/creator/route.ts
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db"; // 네 prisma 경로에 맞게
+import { db } from "@/lib/db";
 
-type Params = {
-    params: {
-        videoId: string;
-    };
-};
-
-export async function GET(_: Request, { params }: Params) {
-    const { videoId } = params;
+export async function GET(
+    _: Request,
+    { params }: { params: Promise<{ videoId: string }> }
+) {
+    const { videoId } = await params;
 
     if (!videoId) {
         return NextResponse.json({ creator: null }, { status: 400 });
     }
 
     const video = await db.video.findUnique({
-        where: { id: videoId },
+        where: { id: videoId }, // 너는 id를 넘기고 있으니 id 기준이 맞음
         select: {
             author: {
                 select: {
@@ -32,12 +30,5 @@ export async function GET(_: Request, { params }: Params) {
         return NextResponse.json({ creator: null }, { status: 404 });
     }
 
-    return NextResponse.json({
-        creator: {
-            id: video.author.id,
-            name: video.author.name,
-            username: video.author.username,
-            image: video.author.image,
-        },
-    });
+    return NextResponse.json({ creator: video.author }, { status: 200 });
 }
