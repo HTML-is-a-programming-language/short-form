@@ -5,7 +5,10 @@ import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export async function DELETE(_: Request, context: { params: { id: string } }) {
+export async function DELETE(
+    _: Request,
+    { params }: { params: Promise<{ id: string }> }
+) {
     const session = await auth();
 
     if (!session?.user) {
@@ -21,9 +24,12 @@ export async function DELETE(_: Request, context: { params: { id: string } }) {
         );
     }
 
-    const videoId = context.params.id;
+    const { id: videoId } = await params;
 
-    // 1) 영상 존재 + 소유자 + 삭제 여부 확인
+    if (!videoId) {
+        return NextResponse.json({ message: "Invalid id" }, { status: 400 });
+    }
+
     const video = await db.video.findUnique({
         where: { id: videoId },
         select: { id: true, authorId: true, deletedAt: true },
@@ -37,11 +43,10 @@ export async function DELETE(_: Request, context: { params: { id: string } }) {
         return NextResponse.json({ message: "Forbidden" }, { status: 403 });
     }
 
-    // 2) 소프트 삭제 처리
     await db.video.update({
         where: { id: videoId },
         data: { deletedAt: new Date() },
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { status: 200 });
 }
