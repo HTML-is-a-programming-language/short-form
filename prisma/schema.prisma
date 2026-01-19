@@ -21,6 +21,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  isOnboarded   Boolean   @default(false)
+  termsAgreedAt DateTime?
+
   videos   Video[]
   likes    Like[]
   comments Comment[]
@@ -55,9 +58,10 @@ model Video {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  deletedAt DateTime?
+
   likes    Like[]
   comments Comment[]
-
   reactions VideoReaction[]
 }
 

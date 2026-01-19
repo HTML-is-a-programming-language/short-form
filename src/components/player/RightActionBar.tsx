@@ -102,7 +102,7 @@ export default function RightActionBar({ videoId }: RightActionBarProps) {
 
     // ⚠️ 작성자 프로필 라우트는 프로젝트 규칙에 맞게 바꿔줘
     // 예: `/users/${creator.username}`, `/@${creator.username}`, `/profile/${creator.id}` 등
-    const creatorHref = creator ? `/users/${creator.username}` : "#";
+    const creatorHref = creator ? `/users/${encodeURIComponent(creator.username)}` : "#";
 
     // ✅ 좋아요/싫어요 버튼 공통 핸들러
     const handleReactionClick = async (nextType: "LIKE" | "DISLIKE") => {
@@ -274,30 +274,14 @@ export default function RightActionBar({ videoId }: RightActionBarProps) {
                         className="h-full w-full"
                     />
                 </div>
-                <span className="text-xs text-white drop-shadow">작성자</span>
-            </Link>
-
-            {/* 마이페이지 / 로그인 */}
-            <Link href={myPageHref} className="mt-1 flex flex-col items-center gap-1">
-                <div
+                <span
                     className="
-                        h-12 w-12
-                        overflow-hidden
-                        rounded-full
-                        border-2
-                        border-white
-                        bg-white
-                        flex items-center justify-center
+                        text-xs text-white drop-shadow
+                        max-w-[72px] truncate
                     "
+                    title={creator ? `@${creator.username}` : "작성자"}
                 >
-                    <img
-                        src={myProfileImage}
-                        alt={myProfileAlt}
-                        className="h-full w-full"
-                    />
-                </div>
-                <span className="text-xs text-white drop-shadow">
-                    {session?.user ? "마이" : "로그인"}
+                    {creator ? creator.username : "작성자"}
                 </span>
             </Link>
         </div>
