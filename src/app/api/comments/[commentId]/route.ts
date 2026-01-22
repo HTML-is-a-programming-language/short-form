@@ -14,15 +14,21 @@ function getSessionUserId(session: unknown): string | null {
     return s?.user?.id ?? s?.user?.appUserId ?? null;
 }
 
+type DeleteCtx = {
+    params: Promise<{
+        commentId: string;
+    }>;
+};
+
 export async function DELETE(
-    req: Request,
-    ctx: { params: { commentId: string } }
+    _req: Request,
+    ctx: DeleteCtx
 ) {
     const session = await getServerSession(authOptions);
     const userId = getSessionUserId(session);
     if (!userId) return jsonError("Unauthorized", 401);
 
-    const commentId = ctx.params.commentId;
+    const { commentId } = await ctx.params;
 
     const comment = await db.comment.findUnique({
         where: { id: commentId },
