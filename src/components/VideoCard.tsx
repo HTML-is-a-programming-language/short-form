@@ -3,10 +3,9 @@
 
 import { useEffect, useRef } from "react";
 import { usePlayer } from "@/components/player/PlayerContext";
-import RightActionBar from "@/components/player/RightActionBar";
 
 type VideoCardProps = {
-    videoId: string;      // ✅ 영상 고유 id 추가
+    videoId: string;
     src: string;
     poster?: string;
     title: string;
@@ -63,9 +62,6 @@ export default function VideoCard({
                 muted={muted}
                 className="h-full w-full object-cover"
             />
-
-            {/* ✅ videoId 넘겨주기 */}
-            <RightActionBar videoId={videoId} />
 
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/0 to-black/0 p-4">
                 <p className="line-clamp-2 text-sm text-white">

@@ -1,5 +1,5 @@
 // src/components/player/PlayerContext.tsx
-'use client';
+"use client";
 
 import React, {
     createContext,
@@ -7,6 +7,7 @@ import React, {
     useEffect,
     useState,
     useCallback,
+    useRef,
 } from "react";
 
 type PlayerContextValue = {
@@ -30,25 +31,68 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [muted, setMuted] = useState(true);
 
+    // ✅ 최신 videoEl 참조를 핸들러에서 안전하게 쓰기 위한 ref
+    const videoRef = useRef<HTMLVideoElement | null>(null);
+    useEffect(() => {
+        videoRef.current = videoEl;
+    }, [videoEl]);
+
     // 현재 video의 이벤트 연결
     useEffect(() => {
         if (!videoEl) {
+            setCurrentTime(0);
+            setDuration(0);
+            setIsPlaying(false);
             return;
         }
 
+        let alive = true;
+        let rafId: number | null = null;
+
         const handleTimeUpdate = () => {
-            setCurrentTime(videoEl.currentTime || 0);
+            if (!alive) return;
+
+            // ✅ 이벤트가 "예전 video"에서 들어온 경우 무시
+            const el = videoRef.current;
+            if (!el || el !== videoEl) return;
+
+            // ✅ 너무 잦은 setState 쓰로틀
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId);
+            }
+
+            rafId = requestAnimationFrame(() => {
+                if (!alive) return;
+                const cur = Number(el.currentTime ?? 0);
+                setCurrentTime(cur);
+            });
         };
 
         const handleLoadedMetadata = () => {
-            setDuration(videoEl.duration || 0);
+            if (!alive) return;
+
+            const el = videoRef.current;
+            if (!el || el !== videoEl) return;
+
+            setDuration(Number(el.duration ?? 0));
+            setCurrentTime(Number(el.currentTime ?? 0));
         };
 
         const handlePlay = () => {
+            if (!alive) return;
+
+            const el = videoRef.current;
+            if (!el || el !== videoEl) return;
+
             setIsPlaying(true);
         };
 
         const handlePause = () => {
+            if (!alive) return;
+
+            const el = videoRef.current;
+            if (!el || el !== videoEl) return;
+
             setIsPlaying(false);
         };
 
@@ -57,7 +101,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         videoEl.addEventListener("play", handlePlay);
         videoEl.addEventListener("pause", handlePause);
 
+        // 초기 반영
+        handleLoadedMetadata();
+        if (!videoEl.paused) {
+            setIsPlaying(true);
+        } else {
+            setIsPlaying(false);
+        }
+
         return () => {
+            alive = false;
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId);
+            }
             videoEl.removeEventListener("timeupdate", handleTimeUpdate);
             videoEl.removeEventListener("loadedmetadata", handleLoadedMetadata);
             videoEl.removeEventListener("play", handlePlay);
@@ -78,23 +134,25 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const togglePlay = useCallback(() => {
-        if (!videoEl) {
+        const el = videoRef.current;
+        if (!el) {
             return;
         }
-        if (videoEl.paused) {
-            videoEl.play().catch(() => {});
+        if (el.paused) {
+            el.play().catch(() => {});
         } else {
-            videoEl.pause();
+            el.pause();
         }
-    }, [videoEl]);
+    }, []);
 
     const seek = useCallback((time: number) => {
-        if (!videoEl) {
+        const el = videoRef.current;
+        if (!el) {
             return;
         }
-        videoEl.currentTime = time;
+        el.currentTime = time;
         setCurrentTime(time);
-    }, [videoEl]);
+    }, []);
 
     const toggleMute = useCallback(() => {
         setMuted((prev) => !prev);

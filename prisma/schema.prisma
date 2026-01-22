@@ -60,9 +60,11 @@ model Video {
 
   deletedAt DateTime?
 
-  likes    Like[]
-  comments Comment[]
+  likes     Like[]
+  comments  Comment[]
   reactions VideoReaction[]
+
+  @@index([authorId, createdAt])
 }
 
 enum VideoStatus {
@@ -81,17 +83,7 @@ model Like {
   video Video @relation(fields: [videoId], references: [id])
 
   @@unique([userId, videoId])
-}
-
-model Comment {
-  id        String   @id @default(cuid())
-  userId    String
-  videoId   String
-  body      String
-  createdAt DateTime @default(now())
-
-  user  User  @relation(fields: [userId], references: [id])
-  video Video @relation(fields: [videoId], references: [id])
+  @@index([videoId])
 }
 
 model Follow {
@@ -104,6 +96,8 @@ model Follow {
   following User @relation("following", fields: [followingId], references: [id])
 
   @@unique([followerId, followingId])
+  @@index([followingId])
+  @@index([followerId])
 }
 
 model VideoReaction {
@@ -118,9 +112,32 @@ model VideoReaction {
   video Video @relation(fields: [videoId], references: [id])
 
   @@unique([userId, videoId])
+  @@index([videoId, type])
 }
 
 enum ReactionType {
   LIKE
   DISLIKE
+}
+
+model Comment {
+  id      String @id @default(cuid())
+  userId  String
+  videoId String
+  body    String @db.Text
+
+  parentId String?
+  parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Comment[] @relation("CommentReplies")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  deletedAt DateTime?
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId, createdAt, id])
+  @@index([parentId, createdAt, id])
+  @@index([videoId, parentId, createdAt, id])
 }

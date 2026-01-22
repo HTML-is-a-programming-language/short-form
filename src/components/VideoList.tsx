@@ -1,15 +1,52 @@
 // src/components/VideoList.tsx
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import VideoCard from "./VideoCard";
 import { usePlayer } from "@/components/player/PlayerContext";
+import RightActionBar from "@/components/player/RightActionBar";
 
 type VideoItem = {
     id: string;
     title: string;
     videoUrl: string;
     thumbnailUrl?: string | null;
+};
+
+// 댓글 프리패치용 타입
+type CommentUser = {
+    id: string;
+    username: string;
+    name: string | null;
+    image: string | null;
+};
+
+type CommentItem = {
+    id: string;
+    userId: string;
+    videoId: string;
+    body: string;
+    createdAt: string;
+    user: CommentUser;
+};
+
+type PrefetchedComments = {
+    videoId: string;
+    totalCount: number;
+    items: CommentItem[];
+    nextCursor: string | null;
+};
+
+type ApiList = {
+    ok: boolean;
+    items: CommentItem[];
+    nextCursor: string | null;
+};
+
+type ApiCount = {
+    ok: boolean;
+    totalCount?: number;
+    count?: number;
 };
 
 // 배열 셔플 (랜덤 순서)
@@ -23,30 +60,103 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export default function VideoList() {
-    // 지금까지 불러온 전체 영상
     const [items, setItems] = useState<VideoItem[]>([]);
-    // 현재 보고 있는 영상 인덱스
     const [currentIndex, setCurrentIndex] = useState(0);
-    // 페이지네이션 커서
     const [cursor, setCursor] = useState<string | null>(null);
-    // 더 가져올 수 있는지
     const [hasMore, setHasMore] = useState(true);
-    // 네트워크 로딩 상태
     const [loading, setLoading] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     const containerRef = useRef<HTMLDivElement | null>(null);
     const isAnimatingRef = useRef(false);
 
+    // loadMore 중복 호출 방지(클로저 stale 방지)
+    const loadingRef = useRef(false);
+
+    // 중복 제거/추가 개수 계산 안정화용
+    const itemsRef = useRef<VideoItem[]>([]);
+    useEffect(() => {
+        itemsRef.current = items;
+    }, [items]);
+
     // ★ 전역 플레이어 상태 (뮤트 토글만 사용)
     const { muted, toggleMute } = usePlayer();
 
-    // 서버에서 영상 추가로 가져오기
+    const isCommentOpen = () => {
+        return document.body.classList.contains("comment-open");
+    };
+
+    // ✅ 댓글 프리패치 캐시(보이는 5개에 대해 미리 채워둠)
+    const commentCacheRef = useRef(new Map<string, PrefetchedComments>());
+    const commentInFlightRef = useRef(new Set<string>());
+    const commentTokenMapRef = useRef(new Map<string, number>());
+
+    const prefetchComments = useCallback(async (videoId: string) => {
+        if (!videoId) return;
+
+        // 이미 캐시에 있으면 스킵
+        if (commentCacheRef.current.has(videoId)) return;
+
+        // 이미 진행중이면 스킵
+        if (commentInFlightRef.current.has(videoId)) return;
+
+        commentInFlightRef.current.add(videoId);
+
+        const nextToken = (commentTokenMapRef.current.get(videoId) ?? 0) + 1;
+        commentTokenMapRef.current.set(videoId, nextToken);
+
+        try {
+            const qs = new URLSearchParams();
+            qs.set("take", "20");
+
+            const listUrl = `/api/videos/${encodeURIComponent(videoId)}/comments?${qs.toString()}`;
+            const countUrl = `/api/videos/${encodeURIComponent(videoId)}/comment-count`;
+
+            const [listRes, countRes] = await Promise.all([
+                fetch(listUrl, { method: "GET", cache: "no-store" }),
+                fetch(countUrl, { method: "GET", cache: "no-store" }),
+            ]);
+
+            const currentToken = commentTokenMapRef.current.get(videoId);
+            if (currentToken !== nextToken) return;
+
+            const listData = (await listRes.json().catch(() => null)) as ApiList | null;
+            const countData = (await countRes.json().catch(() => null)) as ApiCount | null;
+
+            const listOk = Boolean(listRes.ok && listData && listData.ok);
+            const countOk = Boolean(countRes.ok && countData && countData.ok);
+
+            const totalCount = countOk
+                ? Number(countData?.totalCount ?? countData?.count ?? 0)
+                : 0;
+
+            const packed: PrefetchedComments = {
+                videoId,
+                totalCount,
+                items: listOk && Array.isArray(listData?.items) ? listData.items : [],
+                nextCursor: listOk ? (listData?.nextCursor ?? null) : null,
+            };
+
+            // ✅ listOk가 아니더라도 count가 성공했을 수 있으니 캐시에 저장(0 고정 방지)
+            if (countOk || listOk) {
+                commentCacheRef.current.set(videoId, packed);
+            }
+        } catch {
+            // ignore
+        } finally {
+            commentInFlightRef.current.delete(videoId);
+        }
+    }, []);
+
     const loadMore = useCallback(async (): Promise<boolean> => {
-        if (loading || !hasMore) {
+        if (loadingRef.current || !hasMore) {
             return false;
         }
 
+        loadingRef.current = true;
         setLoading(true);
+        setErrorMsg(null);
+
         try {
             const params = new URLSearchParams();
             if (cursor) {
@@ -57,22 +167,25 @@ export default function VideoList() {
                 cache: "no-store",
             });
 
-            const text = await res.text();
+            const text = await res.text().catch(() => "");
 
             if (!res.ok) {
-                console.error("/api/videos error:", res.status, text);
+                setErrorMsg(`영상 불러오기 실패 (${res.status})`);
                 return false;
             }
 
             if (!text) {
-                console.warn("/api/videos empty response");
+                setErrorMsg("서버 응답이 비어있습니다.");
                 return false;
             }
 
-            const json = JSON.parse(text) as {
-                videos: VideoItem[];
-                nextCursor: string | null;
-            };
+            let json: { videos: VideoItem[]; nextCursor: string | null };
+            try {
+                json = JSON.parse(text) as { videos: VideoItem[]; nextCursor: string | null };
+            } catch {
+                setErrorMsg("응답 JSON 파싱에 실패했습니다.");
+                return false;
+            }
 
             let newVideos = json.videos || [];
             if (newVideos.length === 0) {
@@ -83,27 +196,31 @@ export default function VideoList() {
             // 랜덤 순서로 섞기
             newVideos = shuffle(newVideos);
 
-            let addedCount = 0;
-            setItems((prev) => {
-                const existingIds = new Set(prev.map((v) => v.id));
-                const uniqueNew = newVideos.filter((v) => !existingIds.has(v.id));
-                addedCount = uniqueNew.length;
-                if (addedCount === 0) {
-                    return prev;
+            // ✅ addedCount를 setItems 콜백 밖에서 안정적으로 계산
+            const existingIds = new Set(itemsRef.current.map((v) => v.id));
+            const uniqueNew = newVideos.filter((v) => !existingIds.has(v.id));
+
+            if (uniqueNew.length === 0) {
+                setCursor(json.nextCursor ?? null);
+                if (!json.nextCursor) {
+                    setHasMore(false);
                 }
-                return [...prev, ...uniqueNew];
-            });
+                return false;
+            }
+
+            setItems((prev) => [...prev, ...uniqueNew]);
 
             setCursor(json.nextCursor ?? null);
             if (!json.nextCursor) {
                 setHasMore(false);
             }
 
-            return addedCount > 0;
-        } catch (err) {
-            console.error("load videos error:", err);
+            return true;
+        } catch {
+            setErrorMsg("네트워크 오류로 영상을 불러오지 못했습니다.");
             return false;
         } finally {
+            loadingRef.current = false;
             setLoading(false);
         }
     }, [cursor, hasMore]);
@@ -114,7 +231,6 @@ export default function VideoList() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // 다음 / 이전 이동
     const goNext = useCallback(async () => {
         if (isAnimatingRef.current) {
             return;
@@ -164,19 +280,22 @@ export default function VideoList() {
             return;
         }
 
-        const SWIPE_THRESHOLD = 50; // px
+        const SWIPE_THRESHOLD = 50;
 
-        // 터치용
         let touchStartY = 0;
         let touchCurrentY = 0;
         let isTouching = false;
 
-        // 마우스 드래그용
         let mouseStartY = 0;
         let mouseCurrentY = 0;
         let isMouseDown = false;
 
         const onWheel = (e: WheelEvent) => {
+            // ✅ 댓글 서랍 열려있으면 VideoList 스와이프/휠 모두 막기
+            if (isCommentOpen()) {
+                return;
+            }
+
             if (items.length === 0) {
                 return;
             }
@@ -190,8 +309,11 @@ export default function VideoList() {
             }
         };
 
-        // 터치 이벤트
         const onTouchStart = (e: TouchEvent) => {
+            if (isCommentOpen()) {
+                return;
+            }
+
             if (items.length === 0) {
                 return;
             }
@@ -205,6 +327,10 @@ export default function VideoList() {
         };
 
         const onTouchMove = (e: TouchEvent) => {
+            if (isCommentOpen()) {
+                return;
+            }
+
             if (!isTouching) {
                 return;
             }
@@ -217,6 +343,10 @@ export default function VideoList() {
         };
 
         const onTouchEnd = () => {
+            if (isCommentOpen()) {
+                return;
+            }
+
             if (!isTouching) {
                 return;
             }
@@ -228,21 +358,22 @@ export default function VideoList() {
             }
 
             if (deltaY > 0) {
-                // 아래로 스와이프 → 이전
                 goPrev();
             } else {
-                // 위로 스와이프 → 다음
                 void goNext();
             }
         };
 
-        // 마우스 드래그 (PC)
         const onMouseDown = (e: MouseEvent) => {
+            if (isCommentOpen()) {
+                return;
+            }
+
             if (items.length === 0) {
                 return;
             }
             if (e.button !== 0) {
-                return; // 왼쪽 버튼만
+                return;
             }
 
             isMouseDown = true;
@@ -251,15 +382,23 @@ export default function VideoList() {
         };
 
         const onMouseMove = (e: MouseEvent) => {
+            if (isCommentOpen()) {
+                return;
+            }
+
             if (!isMouseDown) {
                 return;
             }
 
-            e.preventDefault(); // 텍스트 드래그 방지
+            e.preventDefault();
             mouseCurrentY = e.clientY;
         };
 
         const onMouseUp = () => {
+            if (isCommentOpen()) {
+                return;
+            }
+
             if (!isMouseDown) {
                 return;
             }
@@ -271,15 +410,12 @@ export default function VideoList() {
             }
 
             if (deltaY > 0) {
-                // 아래로 드래그 → 이전
                 goPrev();
             } else {
-                // 위로 드래그 → 다음
                 void goNext();
             }
         };
 
-        // 리스너 등록
         el.addEventListener("wheel", onWheel, { passive: false });
         el.addEventListener("touchstart", onTouchStart, { passive: true });
         el.addEventListener("touchmove", onTouchMove, { passive: false });
@@ -287,7 +423,6 @@ export default function VideoList() {
         el.addEventListener("touchcancel", onTouchEnd, { passive: true });
 
         el.addEventListener("mousedown", onMouseDown);
-        // 드래그 중 커서가 영역 밖으로 나가도 동작하게 window에 바인딩
         window.addEventListener("mousemove", onMouseMove, { passive: false });
         window.addEventListener("mouseup", onMouseUp);
 
@@ -304,19 +439,33 @@ export default function VideoList() {
         };
     }, [items.length, goNext, goPrev]);
 
-    // 현재 기준 -2 ~ +2만 렌더
     const total = items.length;
     const start = Math.max(0, currentIndex - 2);
     const end = Math.min(total - 1, currentIndex + 2);
     const visibleItems = items.slice(start, end + 1);
     const currentOffset = currentIndex - start;
 
+    const activeVideoId = items[currentIndex]?.id ?? null;
+
+    // ✅ 현재 기준 앞뒤 2개(총 5개) 영상에 대해 댓글(카운트+1페이지) 프리패치
+    const visibleIdsKey = useMemo(() => {
+        return visibleItems.map((v) => v.id).join("|");
+    }, [visibleItems]);
+
+    useEffect(() => {
+        if (!visibleIdsKey) return;
+
+        const ids = visibleIdsKey.split("|").filter(Boolean);
+        for (const id of ids) {
+            void prefetchComments(id);
+        }
+    }, [visibleIdsKey, prefetchComments]);
+
     return (
         <div
             ref={containerRef}
             className="h-full overflow-hidden relative select-none"
         >
-            {/* 슬라이드 영역 */}
             <div
                 className="h-full transition-transform duration-300"
                 style={{ transform: `translateY(-${currentOffset * 100}%)` }}
@@ -328,7 +477,7 @@ export default function VideoList() {
                     return (
                         <div key={v.id} className="h-full">
                             <VideoCard
-                                videoId={v.id}                          // ⭐ 추가
+                                videoId={v.id}
                                 src={v.videoUrl}
                                 poster={v.thumbnailUrl ?? undefined}
                                 title={v.title}
@@ -339,7 +488,14 @@ export default function VideoList() {
                 })}
             </div>
 
-            {/* 전역 음소거 토글 버튼 (PlayerContext 사용) */}
+            {/* ✅ transform(translateY) 영역 밖에서 1번만 렌더 */}
+            {activeVideoId ? (
+                <RightActionBar
+                    videoId={activeVideoId}
+                    commentCacheRef={commentCacheRef}
+                />
+            ) : null}
+
             <button
                 type="button"
                 onClick={toggleMute}
@@ -348,10 +504,15 @@ export default function VideoList() {
                 {muted ? "🔇 음소거" : "🔊 소리 켜짐"}
             </button>
 
-            {/* 서버 요청 중일 때만 나오는 로딩 표시 */}
             {loading && (
                 <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs text-neutral-200">
                     불러오는 중...
+                </div>
+            )}
+
+            {errorMsg && (
+                <div className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs text-red-200">
+                    {errorMsg}
                 </div>
             )}
         </div>
