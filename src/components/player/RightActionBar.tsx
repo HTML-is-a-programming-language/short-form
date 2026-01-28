@@ -1,13 +1,16 @@
 "use client";
 
+import type { MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import CommentDrawer from "@/components/comments/CommentDrawer";
 
 type RightActionBarProps = {
-    videoId: string;
-    commentCacheRef?: React.MutableRefObject<Map<string, Prefetched> >;
+    videoId: string; // ✅ 기존 API용(id)
+    videoUid: string; // ✅ 공유 링크용(uid)
+    videoTitle?: string;
+    commentCacheRef?: MutableRefObject<Map<string, Prefetched>>;
 };
 
 type MyReactionType = "LIKE" | "DISLIKE" | null;
@@ -54,7 +57,12 @@ type ApiCount = {
     count?: number;
 };
 
-export default function RightActionBar({ videoId, commentCacheRef }: RightActionBarProps) {
+export default function RightActionBar({
+    videoId,
+    videoUid,
+    videoTitle,
+    commentCacheRef,
+}: RightActionBarProps) {
     const { data: session } = useSession();
 
     const [creator, setCreator] = useState<Creator>(null);
@@ -74,6 +82,44 @@ export default function RightActionBar({ videoId, commentCacheRef }: RightAction
     const cacheRef = commentCacheRef ?? internalCacheRef;
 
     const prefetchTokenRef = useRef(0);
+
+    // ✅ 공유 동작
+    const shareNow = async () => {
+        if (!videoUid) return;
+
+        const origin = window.location.origin;
+
+        // ✅ 상세페이지(/v/uid)가 아니라 메인(/?v=uid)으로 공유
+        const url = `${origin}/?v=${encodeURIComponent(videoUid)}`;
+
+        const payload = {
+            title: videoTitle ?? "영상",
+            text: "",
+            url,
+        };
+
+        try {
+            if ("share" in navigator) {
+                await (navigator as Navigator & { share: (data: any) => Promise<void> }).share(payload);
+                return;
+            }
+        } catch {
+            // 사용자 취소/지원불안정 → 복사로 폴백
+        }
+
+        try {
+            await navigator.clipboard.writeText(url);
+        } catch {
+            const ta = document.createElement("textarea");
+            ta.value = url;
+            ta.style.position = "fixed";
+            ta.style.left = "-9999px";
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            document.body.removeChild(ta);
+        }
+    };
 
     // video 바뀌면 drawer 닫고 초기화 + 캐시값 즉시 반영
     useEffect(() => {
@@ -201,7 +247,7 @@ export default function RightActionBar({ videoId, commentCacheRef }: RightAction
             : "/images/default-avatar.png";
 
     const creatorAlt = creator?.name ?? creator?.username ?? "작성자";
-    const creatorHref = creator ? `/users/${encodeURIComponent(creator.username)}` : "#";
+    const creatorHref = creator ? `/u/${encodeURIComponent(creator.username)}` : "#";
 
     const handleReactionClick = async (nextType: "LIKE" | "DISLIKE") => {
         if (!session?.user) {
@@ -316,7 +362,10 @@ export default function RightActionBar({ videoId, commentCacheRef }: RightAction
             const listOk = Boolean(listRes.ok && listData && listData.ok);
             const countOk = Boolean(countRes.ok && countData && countData.ok);
 
-            const nextCount = countOk ? Number(countData?.totalCount ?? countData?.count ?? 0) : commentCount;
+            const nextCount = countOk
+                ? Number(countData?.totalCount ?? countData?.count ?? 0)
+                : commentCount;
+
             if (countOk) {
                 setCommentCount(nextCount);
             }
@@ -368,16 +417,27 @@ export default function RightActionBar({ videoId, commentCacheRef }: RightAction
                 >
                     <div
                         className={`
-                            flex h-12 w-12 items-center justify-center rounded-full text-xl
-                            ${myReaction === "LIKE" ? "bg-red-500 text-white" : "bg-black/60 text-white"}
+                            flex h-12 w-12 items-center justify-center rounded-full
+                            bg-black/60
                         `}
+                        aria-label="좋아요"
                     >
-                        👍
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="24"
+                            height="24"
+                            viewBox="0 -960 960 960"
+                            fill="currentColor"
+                            className={myReaction === "LIKE" ? "text-red-500" : "text-white"}
+                            aria-hidden="true"
+                        >
+                            <path d="m480-120-58-52q-101-91-167-157T150-447.5Q111-500 95.5-544T80-634q0-94 63-157t157-63q52 0 99 22t81 62q34-40 81-62t99-22q94 0 157 63t63 157q0 46-15.5 90T810-447.5Q771-395 705-329T538-172l-58 52Z" />
+                        </svg>
                     </div>
+
                     <span
                         className={`
-                            text-xs drop-shadow
-                            ${myReaction === "LIKE" ? "text-red-300" : "text-white"}
+                            text-xs drop-shadow text-white
                         `}
                     >
                         {likeCount}
@@ -392,16 +452,27 @@ export default function RightActionBar({ videoId, commentCacheRef }: RightAction
                 >
                     <div
                         className={`
-                            flex h-12 w-12 items-center justify-center rounded-full text-xl
-                            ${myReaction === "DISLIKE" ? "bg-slate-500 text-white" : "bg-black/60 text-white"}
+                            flex h-12 w-12 items-center justify-center rounded-full
+                            bg-black/60
                         `}
+                        aria-label="싫어요"
                     >
-                        👎
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="24"
+                            height="24"
+                            viewBox="0 -960 960 960"
+                            fill="currentColor"
+                            className={myReaction === "DISLIKE" ? "text-slate-300" : "text-white"}
+                            aria-hidden="true"
+                        >
+                            <path d="M481-83Q347-218 267.5-301t-121-138q-41.5-55-54-94T80-620q0-92 64-156t156-64q45 0 87 16.5t75 47.5l-62 216h120l-34 335 114-375H480l71-212q25-14 52.5-21t56.5-7q92 0 156 64t64 156q0 48-13 88t-55 95.5q-42 55.5-121 138T481-83Z" />
+                        </svg>
                     </div>
+
                     <span
                         className={`
-                            text-xs drop-shadow
-                            ${myReaction === "DISLIKE" ? "text-slate-200" : "text-white"}
+                            text-xs drop-shadow text-white
                         `}
                     >
                         {dislikeCount}
@@ -427,15 +498,20 @@ export default function RightActionBar({ videoId, commentCacheRef }: RightAction
                             text-white
                         "
                     >
-                        {prefetching ? "⏳" : "💬"}
+                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FfF"><path d="M240-400h480v-80H240v80Zm0-120h480v-80H240v80Zm0-120h480v-80H240v80Zm-80 400q-33 0-56.5-23.5T80-320v-480q0-33 23.5-56.5T160-880h640q33 0 56.5 23.5T880-800v720L720-240H160Z"/></svg>
                     </div>
                     <span className="text-xs text-white drop-shadow">
                         {commentCount}
                     </span>
                 </button>
 
-                {/* 공유 */}
-                <button type="button" className="flex flex-col items-center gap-1">
+                {/* ✅ 공유 */}
+                <button
+                    type="button"
+                    className="flex flex-col items-center gap-1"
+                    onClick={shareNow}
+                    title="공유"
+                >
                     <div
                         className="
                             flex
@@ -447,7 +523,7 @@ export default function RightActionBar({ videoId, commentCacheRef }: RightAction
                             text-white
                         "
                     >
-                        ↗
+                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FfF"><path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/></svg>
                     </div>
                     <span className="text-xs text-white drop-shadow">공유</span>
                 </button>

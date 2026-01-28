@@ -42,7 +42,18 @@ export default async function MyPage() {
     return (
         <main className="min-h-dvh bg-black text-white flex justify-center">
             <div className="w-full max-w-md px-4 py-8">
-                <h1 className="text-xl font-semibold mb-6">마이페이지</h1>
+                {/* ✅ 상단 바: 홈 버튼 + 타이틀 */}
+                <header className="relative flex items-center mb-6">
+                    <Link
+                        href="/"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FFF"><path d="M160-120v-480l320-240 320 240v480H560v-280H400v280H160Z"/></svg>
+                    </Link>
+
+                    <h1 className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold">
+                        마이페이지
+                    </h1>
+                </header>
 
                 <section className="bg-white/5 rounded-2xl p-5 flex items-center gap-4 mb-4">
                     <div className="relative w-16 h-16 rounded-full overflow-hidden border border-white/20 flex-shrink-0">

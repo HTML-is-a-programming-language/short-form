@@ -1,4 +1,3 @@
-// src/components/VideoList.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,6 +7,7 @@ import RightActionBar from "@/components/player/RightActionBar";
 
 type VideoItem = {
     id: string;
+    uid: string;
     title: string;
     videoUrl: string;
     thumbnailUrl?: string | null;
@@ -59,7 +59,11 @@ function shuffle<T>(arr: T[]): T[] {
     return a;
 }
 
-export default function VideoList() {
+type VideoListProps = {
+    initialVideoUid?: string;
+};
+
+export default function VideoList({ initialVideoUid }: VideoListProps) {
     const [items, setItems] = useState<VideoItem[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [cursor, setCursor] = useState<string | null>(null);
@@ -148,6 +152,72 @@ export default function VideoList() {
         }
     }, []);
 
+    // ✅ 딥링크로 들어온 initialVideoId를 목록 맨 앞에 “먼저” 끼워넣기
+    const ensureInitialVideo = useCallback(async (videoId: string) => {
+        if (!videoId) return;
+
+        const alreadyIndex = itemsRef.current.findIndex((v) => v.id === videoId);
+        if (alreadyIndex >= 0) {
+            setCurrentIndex(alreadyIndex);
+            return;
+        }
+
+        const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}`, { cache: "no-store" });
+        if (!res.ok) return;
+
+        const data = (await res.json().catch(() => null)) as
+            | { ok: true; video: VideoItem }
+            | { ok: false }
+            | null;
+
+        if (!data || !("ok" in data) || !data.ok) return;
+
+        const video = data.video;
+
+        setItems((prev) => {
+            const next = [video, ...prev.filter((x) => x.id !== video.id)];
+            itemsRef.current = next;
+            return next;
+        });
+
+        setCurrentIndex(0);
+    }, []);
+
+    // ✅ 딥링크로 들어온 uid를 목록 맨 앞에 “먼저” 끼워넣기
+    const ensureInitialVideoByUid = useCallback(async (uid: string) => {
+        if (!uid) return;
+
+        // 이미 있으면 그 위치로 이동
+        const alreadyIndex = itemsRef.current.findIndex((v) => v.uid === uid);
+        if (alreadyIndex >= 0) {
+            setCurrentIndex(alreadyIndex);
+            return;
+        }
+
+        const res = await fetch(`/api/videos/by-uid/${encodeURIComponent(uid)}`, {
+            cache: "no-store",
+        });
+        if (!res.ok) return;
+
+        const data = (await res.json().catch(() => null)) as
+            | { ok: true; video: VideoItem }
+            | { ok: false }
+            | null;
+
+        if (!data || !("ok" in data) || !data.ok) return;
+
+        const video = data.video;
+
+        setItems((prev) => {
+            const next = [video, ...prev.filter((x) => x.id !== video.id)];
+            itemsRef.current = next; // ✅ 즉시 반영 (중복 제거 안정화)
+            return next;
+        });
+
+        setCurrentIndex(0);
+    }, []);
+
+
     const loadMore = useCallback(async (): Promise<boolean> => {
         if (loadingRef.current || !hasMore) {
             return false;
@@ -225,12 +295,25 @@ export default function VideoList() {
         }
     }, [cursor, hasMore]);
 
-    // 최초 1회 로딩
+    // ✅ 최초 1회 로딩: 딥링크 영상 먼저 끼워넣고 → 피드 로딩
     useEffect(() => {
-        void loadMore();
+        const init = async () => {
+            const uid =
+                initialVideoUid ??
+                (typeof window !== "undefined"
+                    ? new URLSearchParams(window.location.search).get("v") ?? undefined
+                    : undefined);
+
+            if (uid) {
+                await ensureInitialVideoByUid(uid);
+            }
+
+            await loadMore();
+        };
+
+        void init();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
     const goNext = useCallback(async () => {
         if (isAnimatingRef.current) {
             return;
@@ -292,13 +375,8 @@ export default function VideoList() {
 
         const onWheel = (e: WheelEvent) => {
             // ✅ 댓글 서랍 열려있으면 VideoList 스와이프/휠 모두 막기
-            if (isCommentOpen()) {
-                return;
-            }
-
-            if (items.length === 0) {
-                return;
-            }
+            if (isCommentOpen()) return;
+            if (items.length === 0) return;
 
             e.preventDefault();
 
@@ -310,16 +388,9 @@ export default function VideoList() {
         };
 
         const onTouchStart = (e: TouchEvent) => {
-            if (isCommentOpen()) {
-                return;
-            }
-
-            if (items.length === 0) {
-                return;
-            }
-            if (e.touches.length > 1) {
-                return;
-            }
+            if (isCommentOpen()) return;
+            if (items.length === 0) return;
+            if (e.touches.length > 1) return;
 
             isTouching = true;
             touchStartY = e.touches[0].clientY;
@@ -327,35 +398,22 @@ export default function VideoList() {
         };
 
         const onTouchMove = (e: TouchEvent) => {
-            if (isCommentOpen()) {
-                return;
-            }
-
-            if (!isTouching) {
-                return;
-            }
-            if (e.touches.length > 1) {
-                return;
-            }
+            if (isCommentOpen()) return;
+            if (!isTouching) return;
+            if (e.touches.length > 1) return;
 
             e.preventDefault();
             touchCurrentY = e.touches[0].clientY;
         };
 
         const onTouchEnd = () => {
-            if (isCommentOpen()) {
-                return;
-            }
+            if (isCommentOpen()) return;
+            if (!isTouching) return;
 
-            if (!isTouching) {
-                return;
-            }
             isTouching = false;
 
             const deltaY = touchCurrentY - touchStartY;
-            if (Math.abs(deltaY) < SWIPE_THRESHOLD) {
-                return;
-            }
+            if (Math.abs(deltaY) < SWIPE_THRESHOLD) return;
 
             if (deltaY > 0) {
                 goPrev();
@@ -365,16 +423,9 @@ export default function VideoList() {
         };
 
         const onMouseDown = (e: MouseEvent) => {
-            if (isCommentOpen()) {
-                return;
-            }
-
-            if (items.length === 0) {
-                return;
-            }
-            if (e.button !== 0) {
-                return;
-            }
+            if (isCommentOpen()) return;
+            if (items.length === 0) return;
+            if (e.button !== 0) return;
 
             isMouseDown = true;
             mouseStartY = e.clientY;
@@ -382,32 +433,21 @@ export default function VideoList() {
         };
 
         const onMouseMove = (e: MouseEvent) => {
-            if (isCommentOpen()) {
-                return;
-            }
-
-            if (!isMouseDown) {
-                return;
-            }
+            if (isCommentOpen()) return;
+            if (!isMouseDown) return;
 
             e.preventDefault();
             mouseCurrentY = e.clientY;
         };
 
         const onMouseUp = () => {
-            if (isCommentOpen()) {
-                return;
-            }
+            if (isCommentOpen()) return;
+            if (!isMouseDown) return;
 
-            if (!isMouseDown) {
-                return;
-            }
             isMouseDown = false;
 
             const deltaY = mouseCurrentY - mouseStartY;
-            if (Math.abs(deltaY) < SWIPE_THRESHOLD) {
-                return;
-            }
+            if (Math.abs(deltaY) < SWIPE_THRESHOLD) return;
 
             if (deltaY > 0) {
                 goPrev();
@@ -445,7 +485,8 @@ export default function VideoList() {
     const visibleItems = items.slice(start, end + 1);
     const currentOffset = currentIndex - start;
 
-    const activeVideoId = items[currentIndex]?.id ?? null;
+    const activeVideo = items[currentIndex] ?? null;
+    const activeVideoId = activeVideo?.id ?? null;
 
     // ✅ 현재 기준 앞뒤 2개(총 5개) 영상에 대해 댓글(카운트+1페이지) 프리패치
     const visibleIdsKey = useMemo(() => {
@@ -492,6 +533,8 @@ export default function VideoList() {
             {activeVideoId ? (
                 <RightActionBar
                     videoId={activeVideoId}
+                    videoUid={activeVideo.uid}
+                    videoTitle={activeVideo?.title}
                     commentCacheRef={commentCacheRef}
                 />
             ) : null}

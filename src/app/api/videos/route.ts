@@ -28,6 +28,7 @@ export async function GET(req: Request) {
             : {}),
         select: {
             id: true,
+            uid: true,
             title: true,
             videoUrl: true,
             thumbnailUrl: true,
