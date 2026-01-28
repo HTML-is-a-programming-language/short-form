@@ -4,10 +4,10 @@ import { db } from "@/lib/db";
 export const runtime = "nodejs";
 
 export async function GET(
-    req: Request,
-    ctx: { params: { uid: string } }
+    _req: Request,
+    { params }: { params: Promise<{ uid: string }> }
 ) {
-    const uid = ctx.params.uid;
+    const { uid } = await params;
 
     const video = await db.video.findUnique({
         where: { uid },
@@ -21,7 +21,10 @@ export async function GET(
     });
 
     if (!video) {
-        return NextResponse.json({ ok: false, message: "Not found" }, { status: 404 });
+        return NextResponse.json(
+            { ok: false, message: "Not found" },
+            { status: 404 }
+        );
     }
 
     return NextResponse.json({ ok: true, video }, { status: 200 });
