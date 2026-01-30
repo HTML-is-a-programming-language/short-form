@@ -5,11 +5,22 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
 
+export const runtime = "nodejs"; // ✅ Prisma/NextAuth 환경에서 확실히 Node로 고정
+
+function nowMs() {
+    return Date.now();
+}
+
 export default async function MyPage() {
+    const t0 = nowMs();
+
+    const tAuth0 = nowMs();
     const session = await auth();
+    const tAuth1 = nowMs();
 
     if (!session?.user) {
-        const callbackUrl = encodeURIComponent("/");
+        // ✅ 마이페이지에 왔으면 로그인 후 다시 마이페이지로 돌아오게 (기존 "/"은 불필요한 왕복 발생)
+        const callbackUrl = encodeURIComponent("/mypage");
         redirect(`/api/auth/signin?callbackUrl=${callbackUrl}`);
     }
 
@@ -19,6 +30,7 @@ export default async function MyPage() {
         redirect("/");
     }
 
+    const tDb0 = nowMs();
     const me = await db.user.findUnique({
         where: { id: userId },
         select: {
@@ -28,6 +40,17 @@ export default async function MyPage() {
             email: true,
             image: true,
         },
+    });
+    const tDb1 = nowMs();
+
+    // ✅ 어디가 느린지 바로 갈라지는 로그
+    // 배포 환경 로그(Vercel 등)에서 [mypage timing]으로 검색하면 됨
+    console.log("[mypage timing]", {
+        totalMs: nowMs() - t0,
+        authMs: tAuth1 - tAuth0,
+        dbMs: tDb1 - tDb0,
+        hasSessionUser: Boolean(session?.user),
+        hasUserId: Boolean(userId),
     });
 
     if (!me?.isOnboarded) {
@@ -44,10 +67,16 @@ export default async function MyPage() {
             <div className="w-full max-w-md px-4 py-8">
                 {/* ✅ 상단 바: 홈 버튼 + 타이틀 */}
                 <header className="relative flex items-center mb-6">
-                    <Link
-                        href="/"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FFF"><path d="M160-120v-480l320-240 320 240v480H560v-280H400v280H160Z"/></svg>
+                    <Link href="/">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            height="24px"
+                            viewBox="0 -960 960 960"
+                            width="24px"
+                            fill="#FFF"
+                        >
+                            <path d="M160-120v-480l320-240 320 240v480H560v-280H400v280H160Z" />
+                        </svg>
                     </Link>
 
                     <h1 className="absolute left-1/2 -translate-x-1/2 text-xl font-semibold">

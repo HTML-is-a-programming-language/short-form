@@ -1,8 +1,10 @@
+// src/components/player/RightActionBar.tsx
 "use client";
 
 import type { MutableRefObject } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import CommentDrawer from "@/components/comments/CommentDrawer";
 
@@ -57,12 +59,19 @@ type ApiCount = {
     count?: number;
 };
 
+type ApiReaction = {
+    likeCount?: number;
+    dislikeCount?: number;
+    myReaction?: MyReactionType;
+} | null;
+
 export default function RightActionBar({
     videoId,
     videoUid,
     videoTitle,
     commentCacheRef,
 }: RightActionBarProps) {
+    const router = useRouter();
     const { data: session } = useSession();
 
     const [creator, setCreator] = useState<Creator>(null);
@@ -82,6 +91,46 @@ export default function RightActionBar({
     const cacheRef = commentCacheRef ?? internalCacheRef;
 
     const prefetchTokenRef = useRef(0);
+
+    // ✅ 추가 캐시: 작성자/댓글카운트/리액션
+    const creatorCacheRef = useRef(new Map<string, Creator>());
+    const countCacheRef = useRef(new Map<string, number>());
+    const reactionCacheRef = useRef(new Map<string, { like: number; dislike: number; my: MyReactionType }>());
+
+    const inFlightCreatorRef = useRef(new Set<string>());
+    const inFlightCountRef = useRef(new Set<string>());
+    const inFlightReactionRef = useRef(new Set<string>());
+
+    const sessionKey = useMemo(() => {
+        const u = session?.user as { id?: string; appUserId?: string } | undefined;
+        return u?.id ?? u?.appUserId ?? "anon";
+    }, [session?.user]);
+
+    const runIdle = useCallback((fn: () => void) => {
+        if (typeof window === "undefined") return () => undefined;
+
+        if ("requestIdleCallback" in window) {
+            const id = (window as unknown as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number })
+                .requestIdleCallback(fn, { timeout: 800 });
+            return () => {
+                try {
+                    (window as unknown as { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(id);
+                } catch {
+                    // ignore
+                }
+            };
+        }
+
+        const w = window as unknown as Window;
+
+        const t = w.setTimeout(() => {
+            fn();
+        }, 200);
+
+        return () => {
+            w.clearTimeout(t);
+        };
+    }, []);
 
     // ✅ 공유 동작
     const shareNow = async () => {
@@ -132,113 +181,193 @@ export default function RightActionBar({
         if (cached) {
             setCommentCount(Number(cached.totalCount ?? 0));
         } else {
-            setCommentCount(0);
+            const cachedCount = countCacheRef.current.get(videoId);
+            setCommentCount(Number(cachedCount ?? 0));
         }
     }, [videoId, cacheRef]);
 
-    // ✅ 리액션 로드
+    // ✅ 작성자 링크 만들기
+    const creatorHref = useMemo(() => {
+        return creator ? `/u/${encodeURIComponent(creator.username)}` : "#";
+    }, [creator]);
+
+    // ✅ 작성자 페이지 미리 받기(creator가 잡히는 순간 + hover)
+    useEffect(() => {
+        if (creator) {
+            router.prefetch(creatorHref);
+        }
+    }, [creator, creatorHref, router]);
+
+    // ✅ 리액션 로드 (네비게이션 방해 줄이기 위해 idle에서 실행 + 캐시)
     useEffect(() => {
         if (!videoId) return;
 
-        const fetchReactions = async () => {
-            try {
-                const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}/reaction`, {
-                    method: "GET",
-                });
-                if (!res.ok) return;
+        const key = `${videoId}:${sessionKey}`;
 
-                const data = (await res.json().catch(() => null)) as
-                    | { likeCount?: number; dislikeCount?: number; myReaction?: MyReactionType }
-                    | null;
+        const cached = reactionCacheRef.current.get(key);
+        if (cached) {
+            setLikeCount(cached.like);
+            setDislikeCount(cached.dislike);
+            setMyReaction(cached.my);
+            return;
+        }
 
-                if (!data) return;
-
-                setLikeCount(Number(data.likeCount ?? 0));
-                setDislikeCount(Number(data.dislikeCount ?? 0));
-                setMyReaction((data.myReaction ?? null) as MyReactionType);
-            } catch {
-                // ignore
-            }
-        };
-
-        void fetchReactions();
-    }, [videoId]);
-
-    // ✅ 작성자(업로더) 로드
-    useEffect(() => {
-        if (!videoId) return;
+        if (inFlightReactionRef.current.has(key)) return;
+        inFlightReactionRef.current.add(key);
 
         const controller = new AbortController();
 
-        const fetchCreator = async () => {
-            try {
-                const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}/creator`, {
-                    method: "GET",
-                    signal: controller.signal,
-                });
-                if (!res.ok) return;
+        const cancelIdle = runIdle(() => {
+            const fetchReactions = async () => {
+                try {
+                    const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}/reaction`, {
+                        method: "GET",
+                        signal: controller.signal,
+                        cache: "no-store", // myReaction 포함 가능성 높아서 안전하게
+                    });
+                    if (!res.ok) return;
 
-                const data = (await res.json().catch(() => null)) as { creator?: Creator } | null;
-                if (!data) return;
+                    const data = (await res.json().catch(() => null)) as ApiReaction;
+                    if (!data) return;
 
-                setCreator(data.creator ?? null);
-            } catch (err) {
-                if ((err as Error).name === "AbortError") return;
-            }
+                    const like = Number(data.likeCount ?? 0);
+                    const dislike = Number(data.dislikeCount ?? 0);
+                    const my = (data.myReaction ?? null) as MyReactionType;
+
+                    setLikeCount(like);
+                    setDislikeCount(dislike);
+                    setMyReaction(my);
+
+                    reactionCacheRef.current.set(key, { like, dislike, my });
+                } catch (err) {
+                    if ((err as Error).name === "AbortError") return;
+                } finally {
+                    inFlightReactionRef.current.delete(key);
+                }
+            };
+
+            void fetchReactions();
+        });
+
+        return () => {
+            cancelIdle();
+            controller.abort();
+            inFlightReactionRef.current.delete(key);
         };
+    }, [videoId, sessionKey, runIdle]);
 
-        void fetchCreator();
+    // ✅ 작성자(업로더) 로드 (idle + 캐시 + 중복방지)
+    useEffect(() => {
+        if (!videoId) return;
 
-        return () => controller.abort();
-    }, [videoId]);
+        const cachedCreator = creatorCacheRef.current.get(videoId);
+        if (cachedCreator !== undefined) {
+            setCreator(cachedCreator);
+            return;
+        }
 
-    // ✅ 댓글 카운트(캐시가 있어도 서버에서 한 번 더 갱신)
+        if (inFlightCreatorRef.current.has(videoId)) return;
+        inFlightCreatorRef.current.add(videoId);
+
+        const controller = new AbortController();
+
+        const cancelIdle = runIdle(() => {
+            const fetchCreator = async () => {
+                try {
+                    const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}/creator`, {
+                        method: "GET",
+                        signal: controller.signal,
+                    });
+                    if (!res.ok) return;
+
+                    const data = (await res.json().catch(() => null)) as { creator?: Creator } | null;
+                    if (!data) return;
+
+                    const next = data.creator ?? null;
+                    setCreator(next);
+                    creatorCacheRef.current.set(videoId, next);
+                } catch (err) {
+                    if ((err as Error).name === "AbortError") return;
+                } finally {
+                    inFlightCreatorRef.current.delete(videoId);
+                }
+            };
+
+            void fetchCreator();
+        });
+
+        return () => {
+            cancelIdle();
+            controller.abort();
+            inFlightCreatorRef.current.delete(videoId);
+        };
+    }, [videoId, runIdle]);
+
+    // ✅ 댓글 카운트: (1) 캐시 있으면 즉시 표시 (2) idle에서 "한 번만" 갱신
     useEffect(() => {
         if (!videoId) return;
 
         const cached = cacheRef.current.get(videoId);
         if (cached) {
             setCommentCount(Number(cached.totalCount ?? 0));
+            countCacheRef.current.set(videoId, Number(cached.totalCount ?? 0));
+        } else {
+            const cachedCount = countCacheRef.current.get(videoId);
+            if (cachedCount !== undefined) {
+                setCommentCount(Number(cachedCount ?? 0));
+            }
         }
+
+        if (inFlightCountRef.current.has(videoId)) return;
+        inFlightCountRef.current.add(videoId);
 
         const controller = new AbortController();
 
-        const fetchCount = async () => {
-            try {
-                const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}/comment-count`, {
-                    method: "GET",
-                    cache: "no-store",
-                    signal: controller.signal,
-                });
-                if (!res.ok) return;
-
-                const data = (await res.json().catch(() => null)) as ApiCount | null;
-                if (!data || !data.ok) return;
-
-                const next = Number(data.totalCount ?? data.count ?? 0);
-                setCommentCount(next);
-
-                const cur = cacheRef.current.get(videoId);
-                if (cur) {
-                    cacheRef.current.set(videoId, {
-                        ...cur,
-                        totalCount: next,
+        const cancelIdle = runIdle(() => {
+            const fetchCount = async () => {
+                try {
+                    const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}/comment-count`, {
+                        method: "GET",
+                        cache: "no-store",
+                        signal: controller.signal,
                     });
-                    setPrefetched((prev) => {
-                        if (!prev) return prev;
-                        if (prev.videoId !== videoId) return prev;
-                        return { ...prev, totalCount: next };
-                    });
+                    if (!res.ok) return;
+
+                    const data = (await res.json().catch(() => null)) as ApiCount | null;
+                    if (!data || !data.ok) return;
+
+                    const next = Number(data.totalCount ?? data.count ?? 0);
+                    setCommentCount(next);
+                    countCacheRef.current.set(videoId, next);
+
+                    const cur = cacheRef.current.get(videoId);
+                    if (cur) {
+                        cacheRef.current.set(videoId, {
+                            ...cur,
+                            totalCount: next,
+                        });
+                        setPrefetched((prev) => {
+                            if (!prev) return prev;
+                            if (prev.videoId !== videoId) return prev;
+                            return { ...prev, totalCount: next };
+                        });
+                    }
+                } catch (err) {
+                    if ((err as Error).name === "AbortError") return;
+                } finally {
+                    inFlightCountRef.current.delete(videoId);
                 }
-            } catch (err) {
-                if ((err as Error).name === "AbortError") return;
-            }
+            };
+
+            void fetchCount();
+        });
+
+        return () => {
+            cancelIdle();
+            controller.abort();
+            inFlightCountRef.current.delete(videoId);
         };
-
-        void fetchCount();
-
-        return () => controller.abort();
-    }, [videoId, cacheRef]);
+    }, [videoId, cacheRef, runIdle]);
 
     const creatorRawImage = creator?.image ?? "";
     const creatorProfileImage =
@@ -247,7 +376,6 @@ export default function RightActionBar({
             : "/images/default-avatar.png";
 
     const creatorAlt = creator?.name ?? creator?.username ?? "작성자";
-    const creatorHref = creator ? `/u/${encodeURIComponent(creator.username)}` : "#";
 
     const handleReactionClick = async (nextType: "LIKE" | "DISLIKE") => {
         if (!session?.user) {
@@ -289,15 +417,20 @@ export default function RightActionBar({
                 return;
             }
 
-            const data = (await res.json().catch(() => null)) as
-                | { likeCount?: number; dislikeCount?: number; myReaction?: MyReactionType }
-                | null;
-
+            const data = (await res.json().catch(() => null)) as ApiReaction;
             if (!data) return;
 
-            setLikeCount(Number(data.likeCount ?? 0));
-            setDislikeCount(Number(data.dislikeCount ?? 0));
-            setMyReaction((data.myReaction ?? null) as MyReactionType);
+            const like = Number(data.likeCount ?? 0);
+            const dislike = Number(data.dislikeCount ?? 0);
+            const my = (data.myReaction ?? null) as MyReactionType;
+
+            setLikeCount(like);
+            setDislikeCount(dislike);
+            setMyReaction(my);
+
+            // ✅ 캐시 갱신
+            const key = `${videoId}:${sessionKey}`;
+            reactionCacheRef.current.set(key, { like, dislike, my });
         } catch {
             // ignore
         }
@@ -305,6 +438,7 @@ export default function RightActionBar({
 
     const handleCountChange = (n: number) => {
         setCommentCount(n);
+        countCacheRef.current.set(videoId, n);
 
         setPrefetched((prev) => {
             if (!prev) return prev;
@@ -368,6 +502,7 @@ export default function RightActionBar({
 
             if (countOk) {
                 setCommentCount(nextCount);
+                countCacheRef.current.set(videoId, nextCount);
             }
 
             if (listOk || countOk) {
@@ -394,6 +529,11 @@ export default function RightActionBar({
         }
     };
 
+    const handleCreatorMouseEnter = () => {
+        if (!creator) return;
+        router.prefetch(creatorHref);
+    };
+
     return (
         <>
             <div
@@ -416,10 +556,10 @@ export default function RightActionBar({
                     className="flex flex-col items-center gap-1"
                 >
                     <div
-                        className={`
+                        className="
                             flex h-12 w-12 items-center justify-center rounded-full
                             bg-black/60
-                        `}
+                        "
                         aria-label="좋아요"
                     >
                         <svg
@@ -435,11 +575,7 @@ export default function RightActionBar({
                         </svg>
                     </div>
 
-                    <span
-                        className={`
-                            text-xs drop-shadow text-white
-                        `}
-                    >
+                    <span className="text-xs drop-shadow text-white">
                         {likeCount}
                     </span>
                 </button>
@@ -451,10 +587,10 @@ export default function RightActionBar({
                     className="flex flex-col items-center gap-1"
                 >
                     <div
-                        className={`
+                        className="
                             flex h-12 w-12 items-center justify-center rounded-full
                             bg-black/60
-                        `}
+                        "
                         aria-label="싫어요"
                     >
                         <svg
@@ -470,11 +606,7 @@ export default function RightActionBar({
                         </svg>
                     </div>
 
-                    <span
-                        className={`
-                            text-xs drop-shadow text-white
-                        `}
-                    >
+                    <span className="text-xs drop-shadow text-white">
                         {dislikeCount}
                     </span>
                 </button>
@@ -498,7 +630,9 @@ export default function RightActionBar({
                             text-white
                         "
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FfF"><path d="M240-400h480v-80H240v80Zm0-120h480v-80H240v80Zm0-120h480v-80H240v80Zm-80 400q-33 0-56.5-23.5T80-320v-480q0-33 23.5-56.5T160-880h640q33 0 56.5 23.5T880-800v720L720-240H160Z"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FfF">
+                            <path d="M240-400h480v-80H240v80Zm0-120h480v-80H240v80Zm0-120h480v-80H240v80Zm-80 400q-33 0-56.5-23.5T80-320v-480q0-33 23.5-56.5T160-880h640q33 0 56.5 23.5T880-800v720L720-240H160Z" />
+                        </svg>
                     </div>
                     <span className="text-xs text-white drop-shadow">
                         {commentCount}
@@ -523,7 +657,9 @@ export default function RightActionBar({
                             text-white
                         "
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FfF"><path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="#FfF">
+                            <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z" />
+                        </svg>
                     </div>
                     <span className="text-xs text-white drop-shadow">공유</span>
                 </button>
@@ -531,6 +667,8 @@ export default function RightActionBar({
                 {/* 작성자 프로필 */}
                 <Link
                     href={creatorHref}
+                    prefetch
+                    onMouseEnter={handleCreatorMouseEnter}
                     className={`mt-1 flex flex-col items-center gap-1 ${creator ? "" : "pointer-events-none opacity-60"}`}
                 >
                     <div
@@ -546,6 +684,7 @@ export default function RightActionBar({
                             src={creatorProfileImage}
                             alt={creatorAlt}
                             className="h-full w-full"
+                            loading="lazy"
                         />
                     </div>
                     <span
